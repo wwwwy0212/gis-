@@ -185,10 +185,16 @@ class OverlapRemoveOne(object):
             arcpy.Append_management(overlap_fc, merge_fc, "NO_TEST")
 
             dissolved_fc = os.path.join(gdb_path, "dissolved")
-            dissolve_stats = [[f, "FIRST"] for f in original_fields]
-            arcpy.Dissolve_management(merge_fc, dissolved_fc, "MERGE_KEY", dissolve_stats, "MULTI_PART")
+            arcpy.Dissolve_management(merge_fc, dissolved_fc, "MERGE_KEY", "", "MULTI_PART")
             _msg(messages, u"  \u878d\u89e3\u540e\u56fe\u6591\u6570\u91cf\uff1a%d" %
                  _get_count(dissolved_fc))
+
+            # Dissolve drops user attributes; join them back from the original table
+            join_table = os.path.join(gdb_path, "src_attr")
+            arcpy.CopyFeatures_management(src_a, join_table)
+            arcpy.AddField_management(join_table, "MERGE_KEY", "LONG")
+            arcpy.CalculateField_management(join_table, "MERGE_KEY", "!A_ORIGOID!", "PYTHON_9.3")
+            arcpy.JoinField_management(dissolved_fc, "MERGE_KEY", join_table, "MERGE_KEY", original_fields)
 
             _drop_non_output_fields(dissolved_fc, original_fields)
 
