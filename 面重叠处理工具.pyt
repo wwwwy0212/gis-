@@ -44,12 +44,26 @@ class OverlapRemoveOne(object):
             parameterType="Required",
             direction="Output")
 
-        return [p0, p1]
+        p2 = arcpy.Parameter(
+            displayName=u"\u4f18\u5148\u4fdd\u7559\u5b57\u6bb5\uff08\u53ef\u9009\uff09",
+            name="priority_field",
+            datatype="GPString",
+            parameterType="Optional",
+            direction="Input")
+
+        return [p0, p1, p2]
 
     def isLicensed(self):
         return True
 
     def updateParameters(self, parameters):
+        if parameters[0].altered and parameters[0].value:
+            try:
+                field_names = [f.name for f in arcpy.ListFields(parameters[0].value)
+                               if f.type not in ("OID", "Geometry")]
+                parameters[2].filter.list = field_names
+            except Exception:
+                pass
         return
 
     def updateMessages(self, parameters):
@@ -66,6 +80,12 @@ class OverlapRemoveOne(object):
     def execute(self, parameters, messages):
         in_layer = parameters[0].valueAsText
         out_layer = parameters[1].valueAsText
+        priority_field = None
+        if len(parameters) > 2 and parameters[2].value:
+            priority_field = parameters[2].valueAsText
+            # ArcGIS Field datatype may return the field name or a semicolon-delimited string
+            if priority_field and ";" in priority_field:
+                priority_field = priority_field.split(";")[0]
 
         uid = uuid.uuid4().hex[:8]
         tmp_dir = _make_temp_dir(out_layer, uid)
@@ -74,11 +94,18 @@ class OverlapRemoveOne(object):
         try:
             arcpy.env.overwriteOutput = True
             _msg(messages, u"========== \u9762\u91cd\u53e0\u5904\u7406\u5f00\u59cb ==========")
-            _msg(messages,
-                u"\u6d41\u7a0b\uff1a\u81ea\u76f8\u4ea4\u63d0\u53d6 -> "
-                u"\u5220\u9664\u76f8\u540c\u9879\u4fdd\u7559\u8f83\u5c0f OBJECTID \u5c5e\u6027 -> "
-                u"\u64e6\u9664\u91cd\u53e0\u533a -> "
-                u"\u6309\u539f\u59cb\u56fe\u6591\u5408\u5e76\u788e\u7247\u8f93\u51fa")
+            if priority_field:
+                _msg(messages,
+                    u"\u6d41\u7a0b\uff1a\u81ea\u76f8\u4ea4\u63d0\u53d6 -> "
+                    u"\u5220\u9664\u76f8\u540c\u9879\u4fdd\u7559\u8f83\u5c0f %s \u5c5e\u6027 -> "
+                    u"\u64e6\u9664\u91cd\u53e0\u533a -> "
+                    u"\u6309\u539f\u59cb\u56fe\u6591\u5408\u5e76\u788e\u7247\u8f93\u51fa" % priority_field)
+            else:
+                _msg(messages,
+                    u"\u6d41\u7a0b\uff1a\u81ea\u76f8\u4ea4\u63d0\u53d6 -> "
+                    u"\u5220\u9664\u76f8\u540c\u9879\u4fdd\u7559\u8f83\u5c0f OBJECTID \u5c5e\u6027 -> "
+                    u"\u64e6\u9664\u91cd\u53e0\u533a -> "
+                    u"\u6309\u539f\u59cb\u56fe\u6591\u5408\u5e76\u788e\u7247\u8f93\u51fa")
 
             if not arcpy.Exists(in_layer):
                 _raise_tool_error(messages, u"\u8f93\u5165\u56fe\u5c42\u4e0d\u5b58\u5728\u6216\u4e0d\u53ef\u8bbf\u95ee\u3002")
@@ -131,6 +158,13 @@ class OverlapRemoveOne(object):
             arcpy.AddField_management(raw_fc, "KEEP_OID", "LONG")
             arcpy.AddField_management(raw_fc, "KEEP_SIDE", "TEXT", "", "", 1)
 
+            # Build priority lookup dicts if user specified a priority field
+            priority_lookup_a = {}
+            priority_lookup_b = {}
+            if priority_field:
+                priority_lookup_a = _build_priority_lookup(src_a, "A_ORIGOID", priority_field)
+                priority_lookup_b = _build_priority_lookup(src_b, "B_ORIGOID", priority_field)
+
             field_list = "%s;%s;%s;%s;IS_OVLP;KEEP_OID;KEEP_SIDE" % (fid_a, fid_b, a_oid, b_oid)
             rows = arcpy.UpdateCursor(raw_fc, "", "", field_list)
             row = rows.next()
@@ -142,8 +176,12 @@ class OverlapRemoveOne(object):
                 is_overlap = 1 if fa != fb else 0
                 row.setValue("IS_OVLP", is_overlap)
                 if is_overlap:
-                    row.setValue("KEEP_OID", min(ao, bo))
-                    row.setValue("KEEP_SIDE", "A" if ao <= bo else "B")
+                    if priority_field:
+                        keep_a = _compare_priority(ao, bo, priority_lookup_a, priority_lookup_b)
+                    else:
+                        keep_a = ao <= bo
+                    row.setValue("KEEP_OID", ao if keep_a else bo)
+                    row.setValue("KEEP_SIDE", "A" if keep_a else "B")
                 rows.updateRow(row)
                 row = rows.next()
             del row
@@ -379,6 +417,57 @@ def _send_gp_message(messages, text, level):
         arcpy.AddError(text)
     else:
         arcpy.AddMessage(text)
+
+
+def _build_priority_lookup(feature_class, oid_field_name, priority_field_name):
+    """Build {ORIGOID: priority_value} dict from a feature class.
+
+    Uses arcpy.da.SearchCursor when available (10.1+), falls back to the
+    old arcpy.SearchCursor for maximum compatibility.
+    """
+    lookup = {}
+    desc = arcpy.Describe(feature_class)
+    oid_name = desc.OIDFieldName
+    # Use data access cursor for speed; fall back to old cursor for 10.0
+    try:
+        with arcpy.da.SearchCursor(feature_class, [oid_field_name, priority_field_name]) as cur:
+            for row in cur:
+                lookup[row[0]] = row[1]
+    except Exception:
+        rows = arcpy.SearchCursor(
+            feature_class, "", "",
+            "%s;%s;%s" % (oid_name, oid_field_name, priority_field_name))
+        row = rows.next()
+        while row:
+            lookup[row.getValue(oid_field_name)] = row.getValue(priority_field_name)
+            row = rows.next()
+        del row, rows
+    return lookup
+
+
+def _compare_priority(ao, bo, lookup_a, lookup_b):
+    """Return True if feature A should be kept (priority_A <= priority_B).
+
+    Handles NULL values: NULL is treated as "largest", so a non-NULL value
+    always wins. If both are NULL, falls back to OID comparison.
+    """
+    val_a = lookup_a.get(ao)
+    val_b = lookup_b.get(bo)
+    # Both NULL -> fall back to OID
+    if val_a is None and val_b is None:
+        return ao <= bo
+    # A is NULL, B is not -> B wins
+    if val_a is None:
+        return False
+    # B is NULL, A is not -> A wins
+    if val_b is None:
+        return True
+    # Both non-NULL -> compare
+    try:
+        return val_a <= val_b
+    except TypeError:
+        # Incomparable types (e.g. string vs int) -> fall back to OID
+        return ao <= bo
 
 
 def _to_unicode(value):

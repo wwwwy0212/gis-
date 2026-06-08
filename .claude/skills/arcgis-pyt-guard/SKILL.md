@@ -1,17 +1,13 @@
 ---
 name: arcgis-pyt-guard
-description: ArcGIS 10.x Python Toolbox (.pyt) 制作全流程避坑与合规检查。在编写或修改任何 ArcGIS .pyt 工具箱代码之前，使用此技能进行合规性检查、风险识别和字段生命周期验证。同时适用于：制作面重叠处理、空间分析、要素编辑等 ArcGIS Python Toolbox 工具，或用户提到 ArcGIS、arcpy、工具箱、.pyt、面重叠、去重叠、拓扑修复、ArcMap 工具开发等关键词。Use this skill BEFORE writing any ArcGIS .pyt code, including simple edits.
+description: ArcGIS 10.x Python Toolbox (.pyt) 制作全流程避坑与合规检查参考文档。仅在用户通过 /arcgis-pyt-guard 命令显式调用时使用，不自动触发。
 ---
 
 # ArcGIS 10.x .pyt 工具箱制作守护
 
 ## 何时使用
 
-满足以下任一条件时，立即调用此技能：
-- 用户要求新建或修改 `.pyt` 工具箱文件
-- 用户提到 ArcGIS 工具开发、arcpy 工具箱、ArcMap Python Toolbox
-- 用户请求面重叠处理、拓扑清理等涉及 arcpy 几何操作的功能
-- 用户说"做一个 ArcGIS 工具"或类似表述
+**仅在用户显式调用 `/arcgis-pyt-guard` 命令时使用此技能。** 不要自动触发，不要在用户提到 ArcGIS、arcpy、工具箱等关键词时自行激活。
 
 ## 执行流程
 
