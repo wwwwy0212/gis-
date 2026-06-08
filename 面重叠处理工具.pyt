@@ -185,7 +185,8 @@ class OverlapRemoveOne(object):
             arcpy.Append_management(overlap_fc, merge_fc, "NO_TEST")
 
             dissolved_fc = os.path.join(gdb_path, "dissolved")
-            arcpy.Dissolve_management(merge_fc, dissolved_fc, "MERGE_KEY", "", "MULTI_PART")
+            dissolve_stats = [[f, "FIRST"] for f in original_fields]
+            arcpy.Dissolve_management(merge_fc, dissolved_fc, "MERGE_KEY", dissolve_stats, "MULTI_PART")
             _msg(messages, u"  \u878d\u89e3\u540e\u56fe\u6591\u6570\u91cf\uff1a%d" %
                  _get_count(dissolved_fc))
 
