@@ -45,7 +45,7 @@ class OverlapRemoveOne(object):
             direction="Output")
 
         p2 = arcpy.Parameter(
-            displayName=u"\u4f18\u5148\u4fdd\u7559\u5b57\u6bb5\uff08\u53ef\u9009\uff09",
+            displayName=u"\u4f18\u5148\u4fdd\u7559\u5b57\u6bb5",
             name="priority_field",
             datatype="GPString",
             parameterType="Optional",
