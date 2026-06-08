@@ -77,7 +77,8 @@ class OverlapRemoveOne(object):
             _msg(messages,
                 u"\u6d41\u7a0b\uff1a\u81ea\u76f8\u4ea4\u63d0\u53d6 -> "
                 u"\u5220\u9664\u76f8\u540c\u9879\u4fdd\u7559\u8f83\u5c0f OBJECTID \u5c5e\u6027 -> "
-                u"\u64e6\u9664\u5408\u5e76\u8f93\u51fa")
+                u"\u64e6\u9664\u91cd\u53e0\u533a -> "
+                u"\u6309\u539f\u59cb\u56fe\u6591\u5408\u5e76\u788e\u7247\u8f93\u51fa")
 
             if not arcpy.Exists(in_layer):
                 _raise_tool_error(messages, u"\u8f93\u5165\u56fe\u5c42\u4e0d\u5b58\u5728\u6216\u4e0d\u53ef\u8bbf\u95ee\u3002")
@@ -165,17 +166,32 @@ class OverlapRemoveOne(object):
             _msg(messages, u"  \u5220\u9664\u76f8\u540c\u9879\u540e\u91cd\u53e0\u9762\u6570\u91cf\uff1a%d" %
                  _get_count(overlap_sorted))
 
-            _drop_non_output_fields(overlap_sorted, original_fields)
             overlap_fc = overlap_sorted
 
             _msg(messages, u"[3/3] \u64e6\u9664\u91cd\u53e0\u533a\u5e76\u5408\u5e76\u6700\u7ec8\u6210\u679c...")
             erased_fc = os.path.join(gdb_path, "erased")
             arcpy.Erase_analysis(src_a, overlap_fc, erased_fc)
-            _drop_non_output_fields(erased_fc, original_fields)
             _msg(messages, u"  \u64e6\u9664\u540e\u975e\u91cd\u53e0\u788e\u7247\u6570\u91cf\uff1a%d" %
                  _get_count(erased_fc))
 
-            final_output = _write_final_output(erased_fc, overlap_fc, out_layer, uid, messages)
+            _msg(messages, u"  \u6309\u539f\u59cb\u56fe\u6591\u5408\u5e76\u788e\u7247...")
+            arcpy.AddField_management(erased_fc, "MERGE_KEY", "LONG")
+            arcpy.CalculateField_management(erased_fc, "MERGE_KEY", "!A_ORIGOID!", "PYTHON_9.3")
+            arcpy.AddField_management(overlap_fc, "MERGE_KEY", "LONG")
+            arcpy.CalculateField_management(overlap_fc, "MERGE_KEY", "!KEEP_OID!", "PYTHON_9.3")
+
+            merge_fc = os.path.join(gdb_path, "fragments_merge")
+            arcpy.CopyFeatures_management(erased_fc, merge_fc)
+            arcpy.Append_management(overlap_fc, merge_fc, "NO_TEST")
+
+            dissolved_fc = os.path.join(gdb_path, "dissolved")
+            arcpy.Dissolve_management(merge_fc, dissolved_fc, "MERGE_KEY", "", "MULTI_PART")
+            _msg(messages, u"  \u878d\u89e3\u540e\u56fe\u6591\u6570\u91cf\uff1a%d" %
+                 _get_count(dissolved_fc))
+
+            _drop_non_output_fields(dissolved_fc, original_fields)
+
+            final_output = _write_final_output(dissolved_fc, out_layer, uid, messages)
 
             _msg(messages, u"\u8f93\u51fa\u6210\u679c\u6570\u91cf\uff1a%d" % _get_count(final_output))
             _msg(messages, u"\u8f93\u51fa\u8def\u5f84\uff1a%s" % final_output)
@@ -256,7 +272,7 @@ def _check_geometry_or_raise(feature_class, gdb_path, messages):
 
 def _field_names_to_keep(feature_class):
     keep = []
-    helper_fields = ["A_ORIGOID", "B_ORIGOID", "IS_OVLP", "KEEP_OID", "KEEP_SIDE"]
+    helper_fields = ["A_ORIGOID", "B_ORIGOID", "IS_OVLP", "KEEP_OID", "KEEP_SIDE", "MERGE_KEY"]
     for field in arcpy.ListFields(feature_class):
         if field.type in ("OID", "Geometry"):
             continue
@@ -290,13 +306,12 @@ def _drop_non_output_fields(feature_class, original_fields):
         arcpy.DeleteField_management(feature_class, delete_fields)
 
 
-def _write_final_output(erased_fc, overlap_fc, out_layer, uid, messages):
+def _write_final_output(result_fc, out_layer, uid, messages):
     final_output = out_layer
     try:
         if arcpy.Exists(final_output):
             arcpy.Delete_management(final_output)
-        arcpy.CopyFeatures_management(erased_fc, final_output)
-        arcpy.Append_management(overlap_fc, final_output, "NO_TEST")
+        arcpy.CopyFeatures_management(result_fc, final_output)
         arcpy.SetParameterAsText(1, final_output)
         return final_output
     except arcpy.ExecuteError:
@@ -311,8 +326,7 @@ def _write_final_output(erased_fc, overlap_fc, out_layer, uid, messages):
             u"\u5c06\u81ea\u52a8\u6539\u7528\u5b89\u5168\u8f93\u51fa\uff1a%s" % fallback)
         if arcpy.Exists(fallback):
             arcpy.Delete_management(fallback)
-        arcpy.CopyFeatures_management(erased_fc, fallback)
-        arcpy.Append_management(overlap_fc, fallback, "NO_TEST")
+        arcpy.CopyFeatures_management(result_fc, fallback)
         final_output = fallback
         arcpy.SetParameterAsText(1, final_output)
         return final_output

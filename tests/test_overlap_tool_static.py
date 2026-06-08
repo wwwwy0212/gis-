@@ -45,11 +45,15 @@ class OverlapToolboxStaticTest(unittest.TestCase):
         self.assertNotIn("messages.AddWarning", text)
         self.assertNotIn("messages.AddError", text)
 
-    def test_final_output_uses_copyfeatures_append_instead_of_merge(self):
+    def test_output_uses_dissolve_to_group_fragments_by_original_feature(self):
         text = read_toolbox()
-        self.assertIn("_write_final_output(erased_fc, overlap_fc, out_layer, uid, messages)", text)
-        self.assertIn("Append_management(overlap_fc, final_output, \"NO_TEST\")", text)
+        self.assertIn("_write_final_output(", text)
+        self.assertIn("_write_final_output(dissolved_fc, out_layer, uid, messages)", text)
+        self.assertIn("Dissolve_management", text)
+        self.assertIn('"MERGE_KEY"', text)
+        self.assertIn('"MULTI_PART"', text)
         self.assertNotIn("Merge_management", text)
+        self.assertNotIn("Append_management(overlap_fc, final_output,", text)
 
     def test_output_write_has_000210_fallback(self):
         text = read_toolbox()
